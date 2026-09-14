@@ -3,11 +3,11 @@ info:
   title: Task Assistant API
   description: >-
     Chat endpoint for the AI task-assistant agent. Send a natural-language
-    message and the agent manages an in-memory to-do list (add/list tasks,
-    plan a schedule) using its tools.
+    message and the agent manages an in-memory to-do list (add, list,
+    complete, reschedule, delete) using its tools.
   version: 0.1.0
 servers:
-  - url: http://localhost:8084
+  - url: http://localhost:8000
 paths:
   /chat:
     post:
@@ -30,6 +30,21 @@ paths:
                 value:
                   sessionId: s1
                   message: Add a task to call the dentist tomorrow
+              completeTask:
+                summary: Complete a task
+                value:
+                  sessionId: s1
+                  message: Mark the "call the dentist" task as done
+              rescheduleTask:
+                summary: Reschedule a task
+                value:
+                  sessionId: s1
+                  message: Push the groceries task to next Monday
+              deleteTask:
+                summary: Delete a task
+                value:
+                  sessionId: s1
+                  message: Remove the groceries task, I don't need it anymore
       responses:
         '200':
           description: The agent's reply.
