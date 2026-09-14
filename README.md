@@ -1,10 +1,28 @@
-# Task Assistant Agent (Ballerina) - Deployment Guide
+# Leave Assistant Agent (Ballerina) - Deployment Guide
 
 ## Overview
 
-A to-do list assistant built with [Ballerina](https://ballerina.io)'s `ai` module and OpenAI. The agent manages an in-memory task list through six tools — add, list, complete, reschedule, delete, and read the current date — and is instructed to resolve relative dates ("tomorrow", "next Friday") against the current date before acting on them. The service exposes `POST /chat` on port `8000`.
+An HR leave-request assistant built with [Ballerina](https://ballerina.io)'s `ai` module and OpenAI. Employees can check their leave balance, file annual, sick, or unpaid leave requests, list their requests, and cancel a pending or approved one. A manager can approve or reject a request that's waiting for a decision.
+
+The agent enforces real approval logic itself, not just record-keeping:
+
+- **Annual leave of 3 days or fewer, and all sick leave**, are approved automatically as long as the employee has enough balance — the balance is deducted immediately.
+- **Longer annual leave, and every unpaid request**, stay `pending` until `approveLeaveRequest` or `rejectLeaveRequest` is called.
+- **Cancelling or rejecting** a request refunds any annual or sick balance it had deducted.
+- Requesting more days than an employee has left is rejected outright with a clear error, not silently approved.
+
+The service exposes `POST /chat` on port `8000`.
 
 This is the reference sample for Agent Manager's **Ballerina buildpack**. Unlike the other samples in this repository, it's built directly from source with no Dockerfile, and — because Ballerina buildpacks don't need one — no language version or start command to configure.
+
+## Sample Employees
+
+Two employees are seeded in memory so you can exercise both the happy path and the balance-error path right away:
+
+| Employee id | Name | Annual leave balance | Sick leave balance |
+| --- | --- | --- | --- |
+| `E-3001` | Priya Fernando | 14 days | 7 days |
+| `E-3002` | Kasun Silva | 3 days | 7 days |
 
 ## Prerequisites
 
@@ -27,8 +45,8 @@ Fill in the agent creation form with these values:
 
 | Field | Value |
 | --- | --- |
-| **Display Name** | `Task Assistant` |
-| **Description** | `Ballerina to-do list assistant` |
+| **Display Name** | `Leave Assistant` |
+| **Description** | `Ballerina employee leave-request assistant` |
 | **GitHub Repository** | `https://github.com/wso2/agent-manager` |
 | **Branch** | `main` |
 | **App Path** | `samples/bal-task-assistant` |
@@ -65,32 +83,56 @@ Click on the **"Try It"** section on the left navigation.
 
 ### Step 2: Test Sample Interactions
 
-Try these in order — they exercise every tool, including the two that read a task back by the id a previous reply gave you:
+Try these in order — together they exercise every rule the agent enforces, not just the tool calls:
+
+**Check a balance:**
 
 ```text
-List all my tasks
+What is my leave balance? My employee id is E-3001
+```
+
+**Auto-approved (short annual leave, within balance):**
+
+```text
+I am E-3001, request 2 days annual leave starting tomorrow, family event
+```
+
+**Needs manager approval (over the 3-day threshold):**
+
+```text
+I am E-3001, request 5 days annual leave starting next Monday, taking a trip
+```
+
+**Balance error, not a partial approval:**
+
+```text
+I am E-3002, request 4 days annual leave starting Friday
+```
+
+E-3002 only has 3 annual days — this should come back as a clear rejection with the actual balance stated, not a request filed for fewer days than asked.
+
+**List and cancel:**
+
+```text
+List my leave requests, employee id E-3001
 ```
 
 ```text
-Add a task to call the dentist tomorrow
+Cancel the family event leave request for E-3001
 ```
 
-```text
-Mark the call the dentist task as done
-```
+Check E-3001's balance again after cancelling — the 2 days should be back, confirming the refund fires.
+
+**Manager approving the pending request** (a separate conversation, standing in for a manager's side of the flow):
 
 ```text
-Push the groceries task to next Monday
-```
-
-```text
-Remove the groceries task, I don't need it anymore
+Approve the pending 5-day leave request for E-3001
 ```
 
 ### Step 3: Observe Traces
 
 1. Click on the **"Observability"** tab on the left navigation and select **Traces**
-2. Open a trace to see the tool calls chosen for each message — `getCurrentDate` should appear before any tool that took a due date, since the system prompt asks the agent to resolve relative dates first
+2. Open a trace to see which tools were called for each message — `getCurrentDate` should appear before `requestLeave` whenever the message uses a relative date like "tomorrow" or "next Monday"
 
 ## Run Locally
 
@@ -103,13 +145,14 @@ bal run    # serves on http://localhost:8000
 ```bash
 curl -s localhost:8000/chat \
   -H 'content-type: application/json' \
-  -d '{"sessionId": "s1", "message": "Add a task to call the dentist tomorrow"}'
+  -d '{"sessionId": "s1", "message": "What is my leave balance? My employee id is E-3001"}'
 ```
 
 `Config.toml` is git-ignored — never commit real credentials to it.
 
 ## Notes
 
-- Task ids are returned by `addTask` and `listTasks`. The system prompt tells the agent to reuse an id from an earlier reply rather than ask the user for one, which is why the test sequence above refers to tasks by description and still works — the agent resolves the description to an id itself via `listTasks`.
-- The in-memory task store resets on every restart — there's no database. That's deliberate: the point of this sample is the Ballerina buildpack and the `ai:Agent` / `@ai:AgentTool` pattern, not persistence.
+- Leave request ids are returned by `requestLeave` and `listMyLeaveRequests`. The system prompt tells the agent to reuse an id from an earlier reply rather than ask the user for one, which is why the test sequence above refers to a request by description and still works — the agent resolves it to an id itself via `listMyLeaveRequests`.
+- `approveLeaveRequest` and `rejectLeaveRequest` aren't gated behind any real authorization in this sample — anyone in the chat can call them. That's deliberate: the point here is the Ballerina buildpack and the approval *logic*, not building a role-based access model. A production version would check the caller's role before allowing either.
+- The in-memory employee and leave-request stores reset on every restart — there's no database. That's deliberate: the point of this sample is the Ballerina buildpack and the `ai:Agent` / `@ai:AgentTool` pattern, not persistence.
 - `ballerinax/amp` is imported for its side effect only (`import ballerinax/amp as _;`) — it wires up AMP's OpenTelemetry auto-instrumentation with no code changes beyond the import.
