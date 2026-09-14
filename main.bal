@@ -26,13 +26,23 @@ type ChatRequest record {
     string message;
 };
 
+// Same mismatch as ChatRequest, on the way out: ai:ChatRespMessage's field
+// is `message`, but the platform's actual contract expects `response` (the
+// Console literally states "Expected JSON body: {response: string}" under
+// every reply it can't parse). Closed is fine here — outgoing serialization
+// isn't validated against a schema the way incoming payloads are, so there's
+// no extra-field risk to guard against on this side.
+type ChatResponse record {|
+    string response;
+|};
+
 // Root-mounted so the agent exposes exactly `POST /chat` on port 8000 —
 // the fixed contract Agent Manager's "Chat Agent" interface type expects.
 service / on new http:Listener(8000) {
     resource function post chat(@http:Payload ChatRequest request)
-                        returns ai:ChatRespMessage|error {
-        string response = check leaveAssistantAgent.run(request.message, request.session_id);
-        return {message: response};
+                        returns ChatResponse|error {
+        string reply = check leaveAssistantAgent.run(request.message, request.session_id);
+        return {response: reply};
     }
 }
 
