@@ -15,10 +15,16 @@ configurable string openAiApiKey = ?;
 // substitute a different payload shape. So this uses a plain http:Listener
 // instead, with our own request type — the ai:Agent's `run` method doesn't
 // care which listener called it, only ai:Listener's service contract does.
-type ChatRequest record {|
+//
+// Open record (no `{| |}`), not closed: the platform's actual payload also
+// carries a `context` field (and possibly others we haven't hit yet, per the
+// Python samples' own ChatRequest models) that we don't need to read. A
+// closed record 400s on any field it doesn't explicitly list; an open one
+// just ignores fields we don't care about instead of rejecting the request.
+type ChatRequest record {
     string session_id;
     string message;
-|};
+};
 
 // Root-mounted so the agent exposes exactly `POST /chat` on port 8000 —
 // the fixed contract Agent Manager's "Chat Agent" interface type expects.
