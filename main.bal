@@ -8,12 +8,24 @@ import ballerinax/amp as _;
 // Provide the OpenAI API key via Config.toml (configurable).
 configurable string openAiApiKey = ?;
 
+// Agent Manager's Chat Agent contract posts `session_id` (snake_case,
+// matching the platform's Python samples) — ballerina/ai's own
+// ai:ChatReqMessage expects `sessionId` (camelCase), and ai:Listener's
+// ai:ChatService contract requires binding that exact type, with no way to
+// substitute a different payload shape. So this uses a plain http:Listener
+// instead, with our own request type — the ai:Agent's `run` method doesn't
+// care which listener called it, only ai:Listener's service contract does.
+type ChatRequest record {|
+    string session_id;
+    string message;
+|};
+
 // Root-mounted so the agent exposes exactly `POST /chat` on port 8000 —
 // the fixed contract Agent Manager's "Chat Agent" interface type expects.
-service / on new ai:Listener(8000) {
-    resource function post chat(@http:Payload ai:ChatReqMessage request)
+service / on new http:Listener(8000) {
+    resource function post chat(@http:Payload ChatRequest request)
                         returns ai:ChatRespMessage|error {
-        string response = check leaveAssistantAgent.run(request.message, request.sessionId);
+        string response = check leaveAssistantAgent.run(request.message, request.session_id);
         return {message: response};
     }
 }
