@@ -145,13 +145,16 @@ bal run    # serves on http://localhost:8000
 ```bash
 curl -s localhost:8000/chat \
   -H 'content-type: application/json' \
-  -d '{"sessionId": "s1", "message": "What is my leave balance? My employee id is E-3001"}'
+  -d '{"session_id": "s1", "message": "What is my leave balance? My employee id is E-3001"}'
 ```
+
+Expect back `{"response": "..."}` — see the note below on why the field names are `session_id`/`response`.
 
 `Config.toml` is git-ignored — never commit real credentials to it.
 
 ## Notes
 
+- **The request/response types are hand-written, not `ballerina/ai`'s own `ChatReqMessage`/`ChatRespMessage`.** Those module types use `sessionId`/`message` — Agent Manager's actual Chat Agent contract sends `session_id` and expects `response` back (matching every Python sample here), plus an unused `context` field. Binding straight to `ai:ChatReqMessage` also requires `ai:Listener`, whose `ChatService` contract locks you into that exact camelCase shape with no way to override it. This sample uses a plain `http:Listener` with its own open `ChatRequest`/closed `ChatResponse` types instead — if you're adapting this pattern for your own Ballerina agent, keep that distinction, or you'll hit the same 400s (`undefined field 'session_id'`, then `undefined field 'context'`) the moment the real platform calls it instead of a hand-written curl test.
 - Leave request ids are returned by `requestLeave` and `listMyLeaveRequests`. The system prompt tells the agent to reuse an id from an earlier reply rather than ask the user for one, which is why the test sequence above refers to a request by description and still works — the agent resolves it to an id itself via `listMyLeaveRequests`.
 - `approveLeaveRequest` and `rejectLeaveRequest` aren't gated behind any real authorization in this sample — anyone in the chat can call them. That's deliberate: the point here is the Ballerina buildpack and the approval *logic*, not building a role-based access model. A production version would check the caller's role before allowing either.
 - The in-memory employee and leave-request stores reset on every restart — there's no database. That's deliberate: the point of this sample is the Ballerina buildpack and the `ai:Agent` / `@ai:AgentTool` pattern, not persistence.
