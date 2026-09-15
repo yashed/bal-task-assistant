@@ -8,36 +8,22 @@ import ballerinax/amp as _;
 // Provide the OpenAI API key via Config.toml (configurable).
 configurable string openAiApiKey = ?;
 
-// Agent Manager's Chat Agent contract posts `session_id` (snake_case,
-// matching the platform's Python samples) — ballerina/ai's own
-// ai:ChatReqMessage expects `sessionId` (camelCase), and ai:Listener's
-// ai:ChatService contract requires binding that exact type, with no way to
-// substitute a different payload shape. So this uses a plain http:Listener
-// instead, with our own request type — the ai:Agent's `run` method doesn't
-// care which listener called it, only ai:Listener's service contract does.
-//
-// Open record (no `{| |}`), not closed: the platform's actual payload also
-// carries a `context` field (and possibly others we haven't hit yet, per the
-// Python samples' own ChatRequest models) that we don't need to read. A
-// closed record 400s on any field it doesn't explicitly list; an open one
-// just ignores fields we don't care about instead of rejecting the request.
+// Platform posts session_id/message (open record: tolerates the extra
+// context field). ai:ChatReqMessage uses sessionId/message and ai:Listener
+// locks you into that shape, so this uses http:Listener instead.
 type ChatRequest record {
     string session_id;
     string message;
 };
 
-// Same mismatch as ChatRequest, on the way out: ai:ChatRespMessage's field
-// is `message`, but the platform's actual contract expects `response` (the
-// Console literally states "Expected JSON body: {response: string}" under
-// every reply it can't parse). Closed is fine here — outgoing serialization
-// isn't validated against a schema the way incoming payloads are, so there's
-// no extra-field risk to guard against on this side.
+// Same mismatch on the way out: ai:ChatRespMessage uses "message", the
+// platform expects "response". Closed record is fine here since outgoing
+// values are not validated the way incoming ones are.
 type ChatResponse record {|
     string response;
 |};
 
-// Root-mounted so the agent exposes exactly `POST /chat` on port 8000 —
-// the fixed contract Agent Manager's "Chat Agent" interface type expects.
+// Root-mounted: exposes exactly POST /chat on port 8000, per the Chat Agent contract.
 service / on new http:Listener(8000) {
     resource function post chat(@http:Payload ChatRequest request)
                         returns ChatResponse|error {
@@ -83,8 +69,7 @@ type LeaveRequest record {|
     time:Date createdAt;
 |};
 
-// Requests longer than this many days always need manager approval,
-// even when there is enough annual leave balance to cover them.
+// Longer requests need manager approval regardless of balance.
 const int AUTO_APPROVE_MAX_DAYS = 3;
 
 isolated map<Employee> employees = {
@@ -109,11 +94,8 @@ isolated function getLeaveBalance(string employeeId) returns Employee|error {
     }
 }
 
-# Submits a new leave request. Annual and sick leave are checked against
-# the employee's balance and deducted immediately, whether or not the
-# request still needs manager approval. Short annual leave and all sick
-# leave are approved right away; longer annual leave and every unpaid
-# request wait for approveLeaveRequest or rejectLeaveRequest.
+# Submits a new leave request. Annual and sick leave auto-approve if the
+# balance allows; longer annual leave and unpaid leave wait for approval.
 #
 # + employeeId - Who is requesting leave
 # + leaveType - annual, sick, or unpaid
@@ -226,9 +208,7 @@ isolated function cancelLeaveRequest(string requestId) returns LeaveRequest|erro
     return updated;
 }
 
-# Approves a pending leave request (annual leave over the auto-approve
-# threshold, or any unpaid leave). Use rejectLeaveRequest instead to turn
-# one down.
+# Approves a pending leave request. Use rejectLeaveRequest to turn one down.
 #
 # + requestId - The request's id, as returned by requestLeave or listMyLeaveRequests
 # + note - An optional note to attach, such as who approved it
@@ -301,9 +281,6 @@ isolated function getCurrentDate() returns time:Date {
     return {year, month, day};
 }
 
-// Define an AI agent with a system prompt and a set of tools.
-// The agent will use these tools to handle employee leave requests,
-// following the system prompt instructions.
 final ai:Agent leaveAssistantAgent = check new ({
     systemPrompt: {
         role: "Leave Assistant",
@@ -319,9 +296,7 @@ final ai:Agent leaveAssistantAgent = check new ({
             request by the id returned from requestLeave or
             listMyLeaveRequests when cancelling, approving, or rejecting it.`
     },
-    // Specify the functions the agent can use as tools.
     tools: [getLeaveBalance, requestLeave, listMyLeaveRequests, cancelLeaveRequest,
             approveLeaveRequest, rejectLeaveRequest, getCurrentDate],
-    // Use OpenAI as the model provider.
     model: check new openai:ModelProvider(openAiApiKey, openai:GPT_4O)
 });
